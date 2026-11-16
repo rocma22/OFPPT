@@ -5,6 +5,7 @@ import type {
   AcademicYear,
   CreateAcademicYearInput,
   DashboardStats,
+  HoursPlanningData,
   InternshipPeriod,
   SaveInternshipPeriodInput,
   Teacher,
@@ -21,6 +22,11 @@ import {
   getAcademicYearMonths,
   getInternshipPeriodDates,
 } from '../shared/internship-periods'
+import {
+  hasTeacherSessionConflict,
+  isAllowedPlanningTime,
+  PLANNING_WEEKDAYS,
+} from '../shared/hours-planning'
 import {
   migrateLegacyTeacherRows,
   type LegacyTeacherRow,
@@ -255,6 +261,37 @@ const migrations = [
       `)
     },
   },
+  {
+    version: 6,
+    up: (db: Database.Database) => {
+      db.exec(`
+        CREATE TABLE group_internship_periods (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          academic_year_id INTEGER NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
+          group_code TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          end_date TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          CHECK (start_date <= end_date),
+          UNIQUE (academic_year_id, group_code)
+        );
+        CREATE INDEX group_internship_periods_year_start_idx
+          ON group_internship_periods(academic_year_id, start_date);
+      `)
+    },
+  },
+  {
+    version: 7,
+    up: (db: Database.Database) => {
+      db.exec(`
+        CREATE TABLE hours_planning_data (
+          academic_year_id INTEGER PRIMARY KEY REFERENCES academic_years(id) ON DELETE CASCADE,
+          data_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+      `)
+    },
+  },
 ]
 
 type TeacherRow = {
@@ -483,7 +520,7 @@ function getDefaultAcademicYear(): CreateAcademicYearInput {
   return {
     label: `${startYear}-${endYear}`,
     startDate: `${startYear}-09-01`,
-    endDate: `${endYear}-08-31`,
+    endDate: `${endYear}-06-30`,
   }
 }
 
@@ -649,17 +686,33 @@ export function createAcademicYear(
 function toInternshipPeriod(row: {
   id: number
   academic_year_id: number
-  teacher_id: number
+  group_code: string
   start_date: string
   end_date: string
 }): InternshipPeriod {
   return {
     id: row.id,
     academicYearId: row.academic_year_id,
-    teacherId: row.teacher_id,
+    groupCode: row.group_code,
     startDate: row.start_date,
     endDate: row.end_date,
   }
+}
+
+export function getInternshipGroups(academicYearId: number): string[] {
+  const db = getDatabase()
+  assertAcademicYearExists(db, academicYearId)
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT trim(a.group_code) AS group_code
+         FROM teacher_assignments a
+         JOIN teachers t ON t.id = a.teacher_id
+         WHERE t.academic_year_id = ? AND trim(a.group_code) <> ''
+         ORDER BY group_code COLLATE NOCASE`,
+      )
+      .all(academicYearId) as { group_code: string }[]
+  ).map(({ group_code }) => group_code)
 }
 
 export function getInternshipPeriods(
@@ -669,10 +722,10 @@ export function getInternshipPeriods(
   assertAcademicYearExists(db, academicYearId)
   return db
     .prepare(
-      `SELECT id, academic_year_id, teacher_id, start_date, end_date
-       FROM teacher_internship_periods
+      `SELECT id, academic_year_id, group_code, start_date, end_date
+       FROM group_internship_periods
        WHERE academic_year_id = ?
-       ORDER BY start_date, teacher_id`,
+       ORDER BY start_date, group_code COLLATE NOCASE`,
     )
     .all(academicYearId)
     .map((row) =>
@@ -680,7 +733,7 @@ export function getInternshipPeriods(
         row as {
           id: number
           academic_year_id: number
-          teacher_id: number
+          group_code: string
           start_date: string
           end_date: string
         },
@@ -694,7 +747,20 @@ export function saveInternshipPeriod(
   const db = getDatabase()
   return db.transaction(() => {
     assertAcademicYearExists(db, input.academicYearId)
-    assertTeacherInYear(db, input.academicYearId, input.teacherId)
+    const groupCode = input.groupCode.trim()
+    if (
+      !groupCode ||
+      !db
+        .prepare(
+          `SELECT 1 FROM teacher_assignments a
+           JOIN teachers t ON t.id = a.teacher_id
+           WHERE t.academic_year_id = ? AND trim(a.group_code) = ?
+           LIMIT 1`,
+        )
+        .get(input.academicYearId, groupCode)
+    ) {
+      throw new Error('Group was not found in the academic year')
+    }
     const academicYear = db
       .prepare('SELECT start_date, end_date FROM academic_years WHERE id = ?')
       .get(input.academicYearId) as
@@ -723,39 +789,27 @@ export function saveInternshipPeriod(
       throw new Error('Internship period is outside the academic year')
     }
 
-    const overlappingPeriod = db
-      .prepare(
-        `SELECT 1 FROM teacher_internship_periods
-         WHERE academic_year_id = ? AND teacher_id <> ?
-           AND start_date <= ? AND end_date >= ?
-         LIMIT 1`,
-      )
-      .get(input.academicYearId, input.teacherId, endDate, startDate)
-    if (overlappingPeriod) {
-      throw new Error('Internship period overlaps another teacher')
-    }
-
     db.prepare(
-      `INSERT INTO teacher_internship_periods (
-        academic_year_id, teacher_id, start_date, end_date
+      `INSERT INTO group_internship_periods (
+        academic_year_id, group_code, start_date, end_date
       ) VALUES (?, ?, ?, ?)
-      ON CONFLICT(academic_year_id, teacher_id)
+      ON CONFLICT(academic_year_id, group_code)
       DO UPDATE SET start_date = excluded.start_date, end_date = excluded.end_date`,
-    ).run(input.academicYearId, input.teacherId, startDate, endDate)
+    ).run(input.academicYearId, groupCode, startDate, endDate)
 
     const row = db
       .prepare(
-        `SELECT id, academic_year_id, teacher_id, start_date, end_date
-         FROM teacher_internship_periods
-         WHERE academic_year_id = ? AND teacher_id = ?`,
+        `SELECT id, academic_year_id, group_code, start_date, end_date
+         FROM group_internship_periods
+         WHERE academic_year_id = ? AND group_code = ?`,
       )
-      .get(input.academicYearId, input.teacherId)
+      .get(input.academicYearId, groupCode)
     if (!row) throw new Error('Unable to save internship period')
     return toInternshipPeriod(
       row as {
         id: number
         academic_year_id: number
-        teacher_id: number
+        group_code: string
         start_date: string
         end_date: string
       },
@@ -765,14 +819,189 @@ export function saveInternshipPeriod(
 
 export function deleteInternshipPeriod(
   academicYearId: number,
-  teacherId: number,
+  groupCode: string,
 ): void {
   const db = getDatabase()
-  assertTeacherInYear(db, academicYearId, teacherId)
+  assertAcademicYearExists(db, academicYearId)
   db.prepare(
-    `DELETE FROM teacher_internship_periods
-     WHERE academic_year_id = ? AND teacher_id = ?`,
-  ).run(academicYearId, teacherId)
+    `DELETE FROM group_internship_periods
+     WHERE academic_year_id = ? AND group_code = ?`,
+  ).run(academicYearId, groupCode)
+}
+
+function isValidDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  )
+}
+
+function isHoursPlanningData(value: unknown): value is HoursPlanningData {
+  if (!value || typeof value !== 'object') return false
+  const data = value as Partial<HoursPlanningData>
+  return (
+    Array.isArray(data.holidays) &&
+    data.holidays.every(
+      (holiday) =>
+        holiday &&
+        typeof holiday.id === 'string' &&
+        typeof holiday.groupCode === 'string' &&
+        typeof holiday.label === 'string' &&
+        typeof holiday.startDate === 'string' &&
+        typeof holiday.endDate === 'string',
+    ) &&
+    !!data.overrides &&
+    typeof data.overrides === 'object' &&
+    !Array.isArray(data.overrides) &&
+    Object.entries(data.overrides).every(
+      ([weekStart, sessions]) =>
+        isValidDate(weekStart) &&
+        Array.isArray(sessions) &&
+        sessions.every(
+          (session) =>
+            session &&
+            typeof session.id === 'string' &&
+            typeof session.weekStart === 'string' &&
+            typeof session.groupCode === 'string' &&
+            Number.isSafeInteger(session.teacherId) &&
+            Number.isInteger(session.weekday) &&
+            typeof session.startTime === 'string' &&
+            typeof session.endTime === 'string',
+        ),
+    )
+  )
+}
+
+function validateHoursPlanningData(
+  db: Database.Database,
+  academicYearId: number,
+  data: HoursPlanningData,
+): void {
+  const academicYear = db
+    .prepare('SELECT start_date, end_date FROM academic_years WHERE id = ?')
+    .get(academicYearId) as
+    | { start_date: string; end_date: string }
+    | undefined
+  if (!academicYear) throw new Error('Academic year was not found')
+
+  const groupExists = db.prepare(
+    `SELECT 1 FROM teacher_assignments a
+     JOIN teachers t ON t.id = a.teacher_id
+     WHERE t.academic_year_id = ? AND upper(trim(a.group_code)) = upper(?)
+     LIMIT 1`,
+  )
+  const holidayIds = new Set<string>()
+  for (const holiday of data.holidays) {
+    if (
+      !holiday.id.trim() ||
+      holidayIds.has(holiday.id) ||
+      !holiday.groupCode.trim() ||
+      !holiday.label.trim() ||
+      !isValidDate(holiday.startDate) ||
+      !isValidDate(holiday.endDate) ||
+      holiday.startDate > holiday.endDate ||
+      holiday.startDate < academicYear.start_date ||
+      holiday.endDate > academicYear.end_date ||
+      !groupExists.get(academicYearId, holiday.groupCode)
+    ) {
+      throw new Error('Holiday details are invalid')
+    }
+    holidayIds.add(holiday.id)
+  }
+
+  const sessionIds = new Set<string>()
+  const assignedTeacherGroup = db.prepare(
+    `SELECT 1 FROM teacher_assignments a
+     JOIN teachers t ON t.id = a.teacher_id
+     WHERE t.academic_year_id = ? AND a.teacher_id = ?
+       AND upper(trim(a.group_code)) = upper(?)
+     LIMIT 1`,
+  )
+  for (const [weekStart, sessions] of Object.entries(data.overrides)) {
+    const weekStartDate = new Date(`${weekStart}T00:00:00.000Z`)
+    if (
+      !isValidDate(weekStart) ||
+      weekStartDate.getUTCDay() !== 1 ||
+      weekStart < addIsoDays(academicYear.start_date, -6) ||
+      weekStart > academicYear.end_date
+    ) {
+      throw new Error('Weekly schedule date is invalid')
+    }
+    for (const session of sessions) {
+      if (
+        !session.id.trim() ||
+        sessionIds.has(session.id) ||
+        session.weekStart !== weekStart ||
+        !session.groupCode.trim() ||
+        !PLANNING_WEEKDAYS.includes(
+          session.weekday as (typeof PLANNING_WEEKDAYS)[number],
+        ) ||
+        !isAllowedPlanningTime(session.startTime, session.endTime) ||
+        !assignedTeacherGroup.get(
+          academicYearId,
+          session.teacherId,
+          session.groupCode,
+        )
+      ) {
+        throw new Error('Weekly schedule details are invalid')
+      }
+      const sessionDate = addIsoDays(weekStart, session.weekday - 1)
+      if (
+        sessionDate < academicYear.start_date ||
+        sessionDate > academicYear.end_date
+      ) {
+        throw new Error('Weekly schedule is outside the academic year')
+      }
+      sessionIds.add(session.id)
+    }
+    if (hasTeacherSessionConflict(sessions)) {
+      throw new Error('Teacher schedule contains a time conflict')
+    }
+  }
+}
+
+function addIsoDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`)
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+
+export function getHoursPlanningData(
+  academicYearId: number,
+): HoursPlanningData {
+  const db = getDatabase()
+  assertAcademicYearExists(db, academicYearId)
+  const row = db
+    .prepare(
+      'SELECT data_json FROM hours_planning_data WHERE academic_year_id = ?',
+    )
+    .get(academicYearId) as { data_json: string } | undefined
+  if (!row) return { holidays: [], overrides: {} }
+  const parsed: unknown = JSON.parse(row.data_json)
+  if (!isHoursPlanningData(parsed)) {
+    throw new Error('Saved hours planning data is invalid')
+  }
+  return parsed
+}
+
+export function saveHoursPlanningData(
+  academicYearId: number,
+  data: HoursPlanningData,
+): void {
+  if (!isHoursPlanningData(data)) {
+    throw new Error('Hours planning data is invalid')
+  }
+  const db = getDatabase()
+  validateHoursPlanningData(db, academicYearId, data)
+  db.prepare(
+    `INSERT INTO hours_planning_data (academic_year_id, data_json)
+     VALUES (?, ?)
+     ON CONFLICT(academic_year_id)
+     DO UPDATE SET data_json = excluded.data_json,
+       updated_at = datetime('now')`,
+  ).run(academicYearId, JSON.stringify(data))
 }
 
 export function deleteAcademicYear(academicYearId: number): void {

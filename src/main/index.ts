@@ -12,11 +12,14 @@ import {
   deleteTeacherAssignment,
   getAcademicYears,
   getDashboardStats,
+  getHoursPlanningData,
+  getInternshipGroups,
   getInternshipPeriods,
   getTeachers,
   importTeachers,
   initializeDatabase,
   saveInternshipPeriod,
+  saveHoursPlanningData,
   updateTeachers,
   updateTeacherAssignment,
 } from './database'
@@ -24,6 +27,7 @@ import { parseTeacherWorkbook } from './teacher-excel'
 import type {
   CreateAcademicYearInput,
   AppLanguage,
+  HoursPlanningData,
   SaveInternshipPeriodInput,
   TeacherDuplicateStrategy,
   TeacherAssignmentInput,
@@ -82,14 +86,27 @@ app.whenReady().then(() => {
     ipcMain.handle('internships:list', (_event, academicYearId: number) =>
       getInternshipPeriods(academicYearId),
     )
+    ipcMain.handle('internships:groups', (_event, academicYearId: number) =>
+      getInternshipGroups(academicYearId),
+    )
     ipcMain.handle(
       'internships:save-period',
       (_event, input: SaveInternshipPeriodInput) => saveInternshipPeriod(input),
     )
     ipcMain.handle(
       'internships:delete-period',
-      (_event, academicYearId: number, teacherId: number) =>
-        deleteInternshipPeriod(academicYearId, teacherId),
+      (_event, academicYearId: number, groupCode: string) =>
+        deleteInternshipPeriod(academicYearId, groupCode),
+    )
+    ipcMain.handle(
+      'hours-planning:get-data',
+      (_event, academicYearId: number) =>
+        getHoursPlanningData(academicYearId),
+    )
+    ipcMain.handle(
+      'hours-planning:save-data',
+      (_event, academicYearId: number, data: HoursPlanningData) =>
+        saveHoursPlanningData(academicYearId, data),
     )
     ipcMain.handle('teachers:list', (_event, academicYearId: number) =>
       getTeachers(academicYearId),

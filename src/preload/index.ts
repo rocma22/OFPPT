@@ -3,6 +3,7 @@ import type {
   CreateAcademicYearInput,
   AppLanguage,
   DesktopApi,
+  HoursPlanningData,
   SaveInternshipPeriodInput,
   TeacherDuplicateStrategy,
   TeacherImportBundle,
@@ -14,12 +15,20 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke('academic-years:create', input),
   deleteAcademicYear: (academicYearId) =>
     ipcRenderer.invoke('academic-years:delete', academicYearId),
+  getInternshipGroups: (academicYearId) =>
+    ipcRenderer.invoke('internships:groups', academicYearId),
   getInternshipPeriods: (academicYearId) =>
     ipcRenderer.invoke('internships:list', academicYearId),
   saveInternshipPeriod: (input: SaveInternshipPeriodInput) =>
     ipcRenderer.invoke('internships:save-period', input),
-  deleteInternshipPeriod: (academicYearId, teacherId) =>
-    ipcRenderer.invoke('internships:delete-period', academicYearId, teacherId),
+  deleteInternshipPeriod: (academicYearId, groupCode) =>
+    ipcRenderer.invoke('internships:delete-period', academicYearId, groupCode),
+  getHoursPlanningData: (academicYearId) =>
+    ipcRenderer.invoke('hours-planning:get-data', academicYearId),
+  saveHoursPlanningData: (
+    academicYearId: number,
+    data: HoursPlanningData,
+  ) => ipcRenderer.invoke('hours-planning:save-data', academicYearId, data),
   getDashboardStats: (academicYearId: number) =>
     ipcRenderer.invoke('dashboard:stats', academicYearId),
   getTeachers: (academicYearId) =>

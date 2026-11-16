@@ -1,5 +1,3 @@
-import type { InternshipPeriod } from './types'
-
 export function getAcademicYearMonths(
   startDate: string,
   endDate: string,
@@ -61,10 +59,8 @@ export function getInternshipPeriodDates(
   return { startDate: `${startMonth}-01`, endDate }
 }
 
-export function canAssignInternshipPeriod(
+export function isInternshipPeriodWithinAcademicYear(
   months: string[],
-  periods: InternshipPeriod[],
-  teacherId: number,
   startMonth: string,
   durationMonths: number,
 ): boolean {
@@ -77,11 +73,5 @@ export function canAssignInternshipPeriod(
   ) {
     return false
   }
-  const endMonth = months[startIndex + durationMonths - 1]
-  return !periods.some(
-    (period) =>
-      period.teacherId !== teacherId &&
-      period.startDate.slice(0, 7) <= endMonth &&
-      period.endDate.slice(0, 7) >= startMonth,
-  )
+  return true
 }

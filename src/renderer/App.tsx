@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/AppLayout'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { GroupsPage } from '@/pages/GroupsPage'
+import { HoursPlanningPage } from '@/pages/HoursPlanningPage'
 import { InternshipsPage } from '@/pages/InternshipsPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 import { TeachersPage } from '@/pages/TeachersPage'
@@ -42,7 +43,7 @@ export function App() {
         <Route path="teachers" element={<TeachersPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="internships" element={<InternshipsPage />} />
-        <Route path="hours-planning" element={<PlaceholderPage />} />
+        <Route path="hours-planning" element={<HoursPlanningPage />} />
         <Route path="calendar" element={<PlaceholderPage />} />
         <Route path="settings" element={<PlaceholderPage />} />
         <Route path="*" element={<Navigate replace to="/" />} />

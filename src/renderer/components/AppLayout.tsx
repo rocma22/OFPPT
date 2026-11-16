@@ -65,6 +65,9 @@ export function AppLayout() {
     [dateLocale],
   )
   const selectedYear = years.find((year) => year.id === selectedYearId)
+  const nextYearStart = selectedYear
+    ? Number(selectedYear.startDate.slice(0, 4)) + 1
+    : null
   const isDashboard = location.pathname === '/'
 
   useEffect(() => {
@@ -387,6 +390,11 @@ export function AppLayout() {
                 <input
                   autoFocus
                   className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  defaultValue={
+                    nextYearStart === null
+                      ? ''
+                      : `${nextYearStart}-${nextYearStart + 1}`
+                  }
                   name="label"
                   placeholder={t('yearDialog.labelPlaceholder')}
                   pattern="\d{4}-\d{4}"
@@ -398,6 +406,11 @@ export function AppLayout() {
                   {t('yearDialog.startDate')}
                   <input
                     className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                    defaultValue={
+                      nextYearStart === null
+                        ? ''
+                        : `${nextYearStart}-09-01`
+                    }
                     name="startDate"
                     required
                     type="date"
@@ -407,6 +420,11 @@ export function AppLayout() {
                   {t('yearDialog.endDate')}
                   <input
                     className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                    defaultValue={
+                      nextYearStart === null
+                        ? ''
+                        : `${nextYearStart + 1}-06-30`
+                    }
                     name="endDate"
                     required
                     type="date"

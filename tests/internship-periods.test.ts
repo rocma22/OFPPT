@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { InternshipPeriod } from '../src/shared/types'
 import {
-  canAssignInternshipPeriod,
   getAcademicYearMonths,
   getInternshipPeriodDates,
+  isInternshipPeriodWithinAcademicYear,
 } from '../src/shared/internship-periods'
 
 describe('internship periods', () => {
@@ -15,6 +14,18 @@ describe('internship periods', () => {
     expect(months[11]).toBe('2027-08')
   })
 
+  it('uses the selected September-to-June academic-year boundaries', () => {
+    const firstYear = getAcademicYearMonths('2026-09-01', '2027-06-30')
+    const nextYear = getAcademicYearMonths('2027-09-01', '2028-06-30')
+
+    expect(firstYear).toHaveLength(10)
+    expect(firstYear[0]).toBe('2026-09')
+    expect(firstYear[9]).toBe('2027-06')
+    expect(nextYear).toHaveLength(10)
+    expect(nextYear[0]).toBe('2027-09')
+    expect(nextYear[9]).toBe('2028-06')
+  })
+
   it('converts a start month and duration to inclusive calendar dates', () => {
     expect(getInternshipPeriodDates('2026-09', 2)).toEqual({
       startDate: '2026-09-01',
@@ -23,27 +34,13 @@ describe('internship periods', () => {
   })
 
   it('does not allow a period to extend past the academic year', () => {
-    expect(canAssignInternshipPeriod(months, [], 1, '2027-08', 2)).toBe(false)
-  })
-
-  it('prevents assigning an already occupied month to another teacher', () => {
-    const assigned: InternshipPeriod[] = [
-      {
-        id: 1,
-        academicYearId: 1,
-        teacherId: 2,
-        startDate: '2026-10-01',
-        endDate: '2026-10-31',
-      },
-    ]
-
-    expect(canAssignInternshipPeriod(months, assigned, 1, '2026-09', 2)).toBe(
+    expect(isInternshipPeriodWithinAcademicYear(months, '2027-08', 2)).toBe(
       false,
     )
-    expect(canAssignInternshipPeriod(months, assigned, 1, '2026-09', 1)).toBe(
-      true,
-    )
-    expect(canAssignInternshipPeriod(months, assigned, 2, '2026-10', 1)).toBe(
+  })
+
+  it('allows an in-year period regardless of the period assigned to another group', () => {
+    expect(isInternshipPeriodWithinAcademicYear(months, '2026-10', 1)).toBe(
       true,
     )
   })

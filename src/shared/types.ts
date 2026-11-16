@@ -22,16 +22,39 @@ export interface CreateAcademicYearInput {
 export interface InternshipPeriod {
   id: number
   academicYearId: number
-  teacherId: number
+  groupCode: string
   startDate: string
   endDate: string
 }
 
 export interface SaveInternshipPeriodInput {
   academicYearId: number
-  teacherId: number
+  groupCode: string
   startMonth: string
   durationMonths: number
+}
+
+export interface HoursPlanHoliday {
+  id: string
+  groupCode: string
+  label: string
+  startDate: string
+  endDate: string
+}
+
+export interface HoursPlanSession {
+  id: string
+  weekStart: string
+  groupCode: string
+  teacherId: number
+  weekday: number
+  startTime: string
+  endTime: string
+}
+
+export interface HoursPlanningData {
+  holidays: HoursPlanHoliday[]
+  overrides: Record<string, HoursPlanSession[]>
 }
 
 export interface TeacherInput {
@@ -132,13 +155,19 @@ export interface DesktopApi {
   getAcademicYears: () => Promise<AcademicYear[]>
   createAcademicYear: (input: CreateAcademicYearInput) => Promise<AcademicYear>
   deleteAcademicYear: (academicYearId: number) => Promise<void>
+  getInternshipGroups: (academicYearId: number) => Promise<string[]>
   getInternshipPeriods: (academicYearId: number) => Promise<InternshipPeriod[]>
   saveInternshipPeriod: (
     input: SaveInternshipPeriodInput,
   ) => Promise<InternshipPeriod>
   deleteInternshipPeriod: (
     academicYearId: number,
-    teacherId: number,
+    groupCode: string,
+  ) => Promise<void>
+  getHoursPlanningData: (academicYearId: number) => Promise<HoursPlanningData>
+  saveHoursPlanningData: (
+    academicYearId: number,
+    data: HoursPlanningData,
   ) => Promise<void>
   getDashboardStats: (academicYearId: number) => Promise<DashboardStats>
   getTeachers: (academicYearId: number) => Promise<Teacher[]>
